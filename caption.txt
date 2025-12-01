@@ -1,0 +1,106 @@
+*********************************
+#image caption
+***************************
+
+from pickle import load
+from numpy import argmax
+from keras.preprocessing.sequence import pad_sequences
+
+from keras.applications import DenseNet169
+from keras.applications.densenet import preprocess_input
+
+from keras.preprocessing.image import load_img, img_to_array
+from keras.models import Model, load_model
+
+import cv2
+import numpy as np
+
+
+# -----------------------------
+# 1. FEATURE EXTRACTION (DenseNet169)
+# -----------------------------
+def extract_features(filename):
+    # Load DenseNet169
+    base_model = DenseNet169(weights='imagenet', include_top=False, pooling='avg')
+
+    # Load and preprocess image
+    image = load_img(filename, target_size=(224, 224))
+    image = img_to_array(image)
+    image = np.expand_dims(image, axis=0)
+    image = preprocess_input(image)
+
+    # Extract features
+    feature = base_model.predict(image, verbose=0)
+    return feature
+
+
+
+# -----------------------------
+# 2. MAP INTEGER BACK TO WORD
+# -----------------------------
+def word_for_id(integer, tokenizer):
+    for word, index in tokenizer.word_index.items():
+        if index == integer:
+            return word
+    return None
+
+
+
+# -----------------------------
+# 3. GENERATE CAPTION SEQUENCE
+# -----------------------------
+def generate_desc(model, tokenizer, photo, max_length):
+    in_text = "startseq"
+
+    for i in range(max_length):
+        sequence = tokenizer.texts_to_sequences([in_text])[0]
+        sequence = pad_sequences([sequence], maxlen=max_length)
+
+        # Predict next word
+        yhat = model.predict([photo, sequence], verbose=0)
+        yhat = argmax(yhat)
+
+        word = word_for_id(yhat, tokenizer)
+        if word is None:
+            break
+
+        in_text += " " + word
+
+        if word == "endseq":
+            break
+
+    return in_text
+
+
+
+# -----------------------------
+# 4. LOAD MODELS
+# -----------------------------
+tokenizer = load(open('tokenizer.pkl', 'rb'))           # tokenizer file
+max_length = 34                                          # your max length
+caption_model = load_model('caption_model.h5')           # your trained caption model file
+
+
+
+# -----------------------------
+# 5. PREDICT CAPTION FOR AN IMAGE
+# -----------------------------
+image_path = "example.jpg"   # <<< change image here
+
+photo = extract_features(image_path)                     # extract DenseNet features
+description = generate_desc(caption_model, tokenizer, photo, max_length)
+
+
+
+# -----------------------------
+# 6. DISPLAY CAPTION ON IMAGE
+# -----------------------------
+img_cv = cv2.imread(image_path)
+cv2.putText(img_cv, description, (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+            (0, 0, 255), 2, cv2.LINE_AA)
+
+cv2.imshow("Tomato Leaf Caption", img_cv)
+cv2.waitKey(0)
+
+print("\nGenerated Caption:\n", description)
